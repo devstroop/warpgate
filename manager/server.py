@@ -9,7 +9,7 @@ POST   /renew         — trigger WARP reconnect on a container
 DELETE /delete        — stop and destroy a container
 GET    /health        — health check (no auth required)
 
-All routes except /health require X-API-Key header.
+All routes except /health require auth (X-API-Key or Authorization: Bearer).
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
@@ -262,8 +263,19 @@ app.add_middleware(
 async def api_key_middleware(request: Request, call_next):
     if request.url.path == "/health" or request.method == "OPTIONS":
         return await call_next(request)
-    if API_KEY and request.headers.get("X-API-Key") != API_KEY:
-        raise HTTPException(401, "Missing or invalid X-API-Key header")
+    if not API_KEY:
+        return await call_next(request)
+    # Accept X-API-Key or Authorization: Bearer <token>
+    provided = request.headers.get("X-API-Key")
+    if not provided:
+        auth = request.headers.get("Authorization", "")
+        if auth.lower().startswith("bearer "):
+            provided = auth[7:]
+    if provided != API_KEY:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Unauthorized"},
+        )
     return await call_next(request)
 
 
