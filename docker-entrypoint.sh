@@ -30,7 +30,7 @@ echo "Starting WARP daemon..."
 WARP_SVC_PID=$!
 
 echo "Waiting for WARP daemon to be ready..."
-for ((i = 1; i <= 30; i++)); do
+for ((i = 1; i <= WARP_WAIT_RETRIES; i++)); do
     if warp-cli --accept-tos status >/dev/null 2>&1; then
         echo "WARP daemon ready"
         break
@@ -73,4 +73,5 @@ mkdir -p /var/log/3proxy
 echo "Starting 3proxy..."
 /usr/bin/3proxy /etc/3proxy/3proxy.cfg &
 THREE_PROXY_PID=$!
-wait $THREE_PROXY_PID
+
+wait
