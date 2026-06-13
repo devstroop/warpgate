@@ -18,6 +18,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  warp-data:
-  warp-cache:
   manager-data:
