@@ -176,17 +176,17 @@ async def _health_monitor(app: FastAPI):
                     if new_status == "running":
                         try:
                             ip = _docker("exec", name, "cat", "/var/cache/warp-ip.txt", timeout=10).strip()
-                            if ip and ip != state[name].get("warp_ip"):
-                                state[name]["warp_ip"] = ip
+                            if ip and ip != state[name].get("public_ip"):
+                                state[name]["public_ip"] = ip
                                 changed = True
                         except RuntimeError:
                             pass
                         try:
                             warp_status = _docker("exec", name, "warp-cli", "--accept-tos", "status", timeout=10)
                             new_warp = "Connected" in warp_status
-                            old_warp = state[name].get("warp_connected", False)
+                            old_warp = state[name].get("connected", False)
                             if new_warp != old_warp:
-                                state[name]["warp_connected"] = new_warp
+                                state[name]["connected"] = new_warp
                                 changed = True
                                 if not new_warp:
                                     log.warning("Proxy %s WARP disconnected", name)
@@ -291,8 +291,8 @@ class ProxyInfo(BaseModel):
     http_url: str
     status: str
     healthy: bool = False
-    warp_connected: bool = False
-    warp_ip: str | None = None
+    connected: bool = False
+    public_ip: str | None = None
     created: str
 
 
@@ -333,8 +333,8 @@ def _get_one(name: str) -> dict:
 def _build_proxy_info(name: str, meta: dict) -> ProxyInfo:
     """Resolve live status, WARP connectivity, and health for a proxy."""
     status = "unknown"
-    warp_ip: str | None = meta.get("warp_ip")
-    warp_connected = bool(meta.get("warp_connected", False))
+    public_ip: str | None = meta.get("public_ip")
+    connected = bool(meta.get("connected", False))
 
     try:
         inspect = json.loads(_docker("inspect", name))
@@ -344,19 +344,19 @@ def _build_proxy_info(name: str, meta: dict) -> ProxyInfo:
 
     if status == "running":
         try:
-            warp_ip = _docker("exec", name, "cat", "/var/cache/warp-ip.txt", timeout=10).strip() or warp_ip
+            public_ip = _docker("exec", name, "cat", "/var/cache/warp-ip.txt", timeout=10).strip() or public_ip
         except RuntimeError:
             pass
         try:
             warp_status = _docker("exec", name, "warp-cli", "--accept-tos", "status", timeout=10)
-            warp_connected = "Connected" in warp_status
+            connected = "Connected" in warp_status
         except RuntimeError:
             pass
 
     # A proxy is healthy if status=="running" AND 3proxy is listening (docker HEALTHCHECK equivalent)
     healthy = (
         status == "running"
-        and warp_connected
+        and connected
     )
 
     socks_port = meta["socks_port"]
@@ -370,8 +370,8 @@ def _build_proxy_info(name: str, meta: dict) -> ProxyInfo:
         http_url=f"http://{HOST}:{http_port}",
         status=status,
         healthy=healthy,
-        warp_connected=warp_connected,
-        warp_ip=warp_ip.strip() if warp_ip else None,
+        connected=connected,
+        public_ip=public_ip.strip() if public_ip else None,
         created=meta["created"],
     )
 
@@ -485,8 +485,8 @@ async def create_proxy(body: CreateRequest | None = None):
         http_url=f"http://{HOST}:{http_port}",
         status="starting",
         healthy=False,
-        warp_connected=False,
-        warp_ip=None,
+        connected=False,
+        public_ip=None,
         created=created,
     )
 
@@ -558,8 +558,8 @@ def renew_proxy(body: RenewRequest):
                          name, old_ip, new_ip, attempt)
                 state = _load_state()
                 if name in state:
-                    state[name]["warp_ip"] = new_ip
-                    state[name]["warp_connected"] = True
+                    state[name]["public_ip"] = new_ip
+                    state[name]["connected"] = True
                     _save_state(state)
                 return {
                     "name": name,
