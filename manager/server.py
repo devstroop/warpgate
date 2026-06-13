@@ -300,6 +300,8 @@ class ProxyListResponse(BaseModel):
     proxies: list[ProxyInfo]
     count: int
     healthy_count: int
+    capacity: int
+    available: int
     version: str
 
 
@@ -389,6 +391,8 @@ def list_proxies():
         proxies=proxies,
         count=len(proxies),
         healthy_count=healthy_count,
+        capacity=MAX_INSTANCES,
+        available=MAX_INSTANCES - len(proxies),
         version=VERSION,
     )
 
