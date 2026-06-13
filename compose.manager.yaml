@@ -8,14 +8,14 @@ services:
       DATA_DIR: /data
       WARP_IMAGE: warp-proxy:latest
       HOST: "${HOST:-127.0.0.1}"
-      SOCKS_BASE: "1080"
-      HTTP_BASE: "3128"
-      MAX_INSTANCES: "10"
+      SOCKS_BASE: "${SOCKS_BASE:-1080}"
+      HTTP_BASE: "${HTTP_BASE:-3128}"
+      MAX_INSTANCES: "${MAX_INSTANCES:-10}"
       MANAGER_API_KEY: "${MANAGER_API_KEY:-}"
-      DOCKER_TIMEOUT: "60"
-      STOP_TIMEOUT: "10"
-      FORCE_RENEW_ATTEMPTS: "10"
-      FORCE_RENEW_DELAY: "5"
+      DOCKER_TIMEOUT: "${DOCKER_TIMEOUT:-60}"
+      STOP_TIMEOUT: "${STOP_TIMEOUT:-10}"
+      FORCE_RENEW_ATTEMPTS: "${FORCE_RENEW_ATTEMPTS:-10}"
+      FORCE_RENEW_DELAY: "${FORCE_RENEW_DELAY:-5}"
     volumes:
       - manager-data:/data
       - /var/run/docker.sock:/var/run/docker.sock
