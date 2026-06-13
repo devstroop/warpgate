@@ -53,7 +53,7 @@ API_KEY = os.environ.get("MANAGER_API_KEY", "")
 STOP_TIMEOUT = int(os.environ.get("STOP_TIMEOUT", "10"))
 DOCKER_TIMEOUT = int(os.environ.get("DOCKER_TIMEOUT", "60"))
 # Advertised host for constructing proxy URLs (defaults to auto-detect via socket)
-ADVERTISED_HOST = os.environ.get("ADVERTISED_HOST", "") or socket.gethostbyname(socket.gethostname())
+HOST = os.environ.get("HOST", "") or socket.gethostbyname(socket.gethostname())
 
 VERSION = "0.2.0"
 
@@ -337,8 +337,8 @@ def _build_proxy_info(name: str, meta: dict) -> ProxyInfo:
         name=name,
         socks_port=socks_port,
         http_port=http_port,
-        socks5_url=f"socks5://{ADVERTISED_HOST}:{socks_port}",
-        http_url=f"http://{ADVERTISED_HOST}:{http_port}",
+        socks5_url=f"socks5://{HOST}:{socks_port}",
+        http_url=f"http://{HOST}:{http_port}",
         status=status,
         healthy=healthy,
         warp_connected=warp_connected,
@@ -452,8 +452,8 @@ async def create_proxy(body: CreateRequest | None = None):
         name=name,
         socks_port=socks_port,
         http_port=http_port,
-        socks5_url=f"socks5://{ADVERTISED_HOST}:{socks_port}",
-        http_url=f"http://{ADVERTISED_HOST}:{http_port}",
+        socks5_url=f"socks5://{HOST}:{socks_port}",
+        http_url=f"http://{HOST}:{http_port}",
         status="starting",
         healthy=False,
         warp_connected=False,
