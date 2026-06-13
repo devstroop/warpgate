@@ -46,9 +46,9 @@ fi
 echo "Connecting to WARP..."
 warp-cli --accept-tos connect || echo "WARP connect returned $?"
 
-if [ -n "$WARP_CLIENT_ID" ] && [ -n "$WARP_CLIENT_SECRET" ]; then
-    echo "WARP+ Teams license detected, registering..."
-    warp-cli --accept-tos teams-enroll-token "$WARP_CLIENT_ID" || true
+if [ -n "$WARP_CLIENT_SECRET" ]; then
+    echo "WARP Teams token detected, enrolling..."
+    warp-cli --accept-tos teams-enroll-token "$WARP_CLIENT_SECRET" || true
 fi
 
 echo "Waiting for WARP connection..."
