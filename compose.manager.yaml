@@ -3,9 +3,11 @@ services:
     build: ./manager
     ports:
       - "8000:8000"
+    env_file: .env
     environment:
       DATA_DIR: /data
       WARP_IMAGE: warp-proxy:latest
+      HOST: "${HOST:-127.0.0.1}"
       SOCKS_BASE: "1080"
       HTTP_BASE: "3128"
       MAX_INSTANCES: "10"
