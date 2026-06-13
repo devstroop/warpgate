@@ -247,6 +247,11 @@ def list_proxies():
     return [_build_proxy_info(name, meta) for name, meta in sorted(state.items())]
 
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 @app.get("/{name}", response_model=ProxyInfo)
 def get_proxy(name: str):
     """Return details for a single proxy by container name."""
@@ -281,7 +286,7 @@ async def create_proxy(body: CreateRequest | None = None):
         created = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         cmd = [
-            "docker", "run", "-d",
+            "run", "-d",
             "--name", name,
             "--label", f"{LABEL_MANAGED}=true",
             "--label", f"{LABEL_SOCKS}={socks_port}",
@@ -406,10 +411,4 @@ def delete_proxy(body: ContainerRef):
     return {"name": name, "action": "deleted", "status": "ok"}
 
 
-# ---------------------------------------------------------------------------
-# health
-# ---------------------------------------------------------------------------
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
