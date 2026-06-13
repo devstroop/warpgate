@@ -54,6 +54,8 @@ STOP_TIMEOUT = int(os.environ.get("STOP_TIMEOUT", "10"))
 DOCKER_TIMEOUT = int(os.environ.get("DOCKER_TIMEOUT", "60"))
 # Advertised host for constructing proxy URLs (defaults to auto-detect via socket)
 HOST = os.environ.get("HOST", "") or socket.gethostbyname(socket.gethostname())
+FORCE_RENEW_ATTEMPTS = int(os.environ.get("FORCE_RENEW_ATTEMPTS", "10"))
+FORCE_RENEW_DELAY = int(os.environ.get("FORCE_RENEW_DELAY", "5"))
 
 VERSION = "0.2.0"
 
@@ -130,6 +132,15 @@ def _is_running(name: str) -> bool:
         return inspect[0]["State"]["Status"] == "running"
     except RuntimeError:
         return False
+
+
+def _get_warp_ip(name: str) -> str | None:
+    """Get the current WARP IP for a running container."""
+    try:
+        ip = _docker("exec", name, "cat", "/var/cache/warp-ip.txt", timeout=10).strip()
+        return ip or None
+    except RuntimeError:
+        return None
 
 
 def _ensure_unused_ports(socks_port: int, http_port: int) -> None:
@@ -287,6 +298,11 @@ class CreateRequest(BaseModel):
 
 class ContainerRef(BaseModel):
     name: str
+
+
+class RenewRequest(BaseModel):
+    name: str
+    force: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -491,14 +507,71 @@ def restart_proxy(body: ContainerRef):
 
 
 @app.post("/renew", response_model=dict)
-def renew_proxy(body: ContainerRef):
-    """Trigger a WARP reconnect inside the container (disconnect → connect)."""
+def renew_proxy(body: RenewRequest):
+    """Trigger a WARP reconnect inside the container.
+
+    When ``force`` is true, the manager will repeatedly disconnect → connect
+    until the WARP IP changes (or until FORCE_RENEW_ATTEMPTS is exhausted).
+    The response includes old_ip, new_ip, and attempts.
+    """
     name = body.name
+    force = body.force
     _get_one(name)  # 404 if unknown
 
     if not _is_running(name):
         raise HTTPException(409, f"Container {name} is not running")
 
+    old_ip = _get_warp_ip(name) if force else None
+
+    # ------------------------------------------------------------------
+    # force mode — poll until the IP actually changes
+    # ------------------------------------------------------------------
+    if force and old_ip:
+        for attempt in range(1, FORCE_RENEW_ATTEMPTS + 1):
+            try:
+                _docker("exec", name, "warp-cli", "--accept-tos", "disconnect")
+                time.sleep(3)
+                _docker("exec", name, "warp-cli", "--accept-tos", "connect")
+            except RuntimeError as e:
+                raise HTTPException(500, str(e)) from e
+
+            time.sleep(FORCE_RENEW_DELAY)
+            new_ip = _get_warp_ip(name)
+
+            if new_ip and new_ip != old_ip:
+                log.info("Force-renewed WARP on %s: %s → %s (attempt %d)",
+                         name, old_ip, new_ip, attempt)
+                state = _load_state()
+                if name in state:
+                    state[name]["warp_ip"] = new_ip
+                    state[name]["warp_connected"] = True
+                    _save_state(state)
+                return {
+                    "name": name,
+                    "action": "renew",
+                    "status": "ok",
+                    "force": True,
+                    "old_ip": old_ip,
+                    "new_ip": new_ip,
+                    "attempts": attempt,
+                }
+
+        # exhausted all attempts — IP never changed
+        log.warning("Force-renew WARP on %s: IP unchanged after %d attempts",
+                     name, FORCE_RENEW_ATTEMPTS)
+        return {
+            "name": name,
+            "action": "renew",
+            "status": "unchanged",
+            "force": True,
+            "old_ip": old_ip,
+            "new_ip": old_ip,
+            "attempts": FORCE_RENEW_ATTEMPTS,
+        }
+
+    # ------------------------------------------------------------------
+    # standard (non-force) mode — one-shot disconnect → connect
+    # ------------------------------------------------------------------
     try:
         _docker("exec", name, "warp-cli", "--accept-tos", "disconnect")
         time.sleep(1)
