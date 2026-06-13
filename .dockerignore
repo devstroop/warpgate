@@ -1,0 +1,32 @@
+# Docker build context
+.git/
+.gitignore
+.gitattributes
+.github/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+.DS_Store
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Documentation
+*.md
+!README.md
+
+# Compose overrides (keep the committed ones)
+docker-compose.override.yml

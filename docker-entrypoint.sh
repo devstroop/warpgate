@@ -35,7 +35,7 @@ for ((i = 1; i <= WARP_WAIT_RETRIES; i++)); do
         echo "WARP daemon ready"
         break
     fi
-    sleep 1
+    sleep "$WARP_WAIT_INTERVAL"
 done
 
 if [ ! -f /var/lib/cloudflare-warp/reg.json ]; then
@@ -44,7 +44,9 @@ if [ ! -f /var/lib/cloudflare-warp/reg.json ]; then
 fi
 
 echo "Connecting to WARP..."
-warp-cli --accept-tos connect || echo "WARP connect returned $?"
+if ! warp-cli --accept-tos connect; then
+    echo "ERROR: WARP connect failed (exit $?)"
+fi
 
 if [ -n "$WARP_CLIENT_SECRET" ]; then
     echo "WARP Teams token detected, enrolling..."
@@ -66,7 +68,7 @@ for ((i = 1; i <= WARP_WAIT_RETRIES; i++)); do
 done
 
 mkdir -p "$(dirname "$WARP_IP_CACHE")"
-curl -sf https://ipinfo.io/ip > "$WARP_IP_CACHE" 2>/dev/null && echo "External IP cached" || true
+curl -sf --connect-timeout 5 --max-time 10 https://ipinfo.io/ip > "$WARP_IP_CACHE" 2>/dev/null && echo "External IP cached" || true
 
 mkdir -p /var/log/3proxy
 

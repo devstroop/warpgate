@@ -61,6 +61,8 @@ LABEL_CREATED = "warp.created"
 
 # port-creation lock to prevent race conditions
 _port_lock = asyncio.Lock()
+# state file lock for atomic read/write
+_state_lock = asyncio.Lock()
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -111,6 +113,15 @@ def _next_ports(state: dict) -> tuple[int, int]:
         if s not in used_socks and h not in used_http:
             return s, h
     raise HTTPException(409, "No free ports — MAX_INSTANCES reached")
+
+
+def _is_running(name: str) -> bool:
+    """Return True if the container is in 'running' state."""
+    try:
+        inspect = json.loads(_docker("inspect", name))
+        return inspect[0]["State"]["Status"] == "running"
+    except RuntimeError:
+        return False
 
 
 def _ensure_unused_ports(socks_port: int, http_port: int) -> None:
@@ -222,7 +233,7 @@ def _build_proxy_info(name: str, meta: dict) -> ProxyInfo:
 
     if status == "running":
         try:
-            warp_ip = _docker("exec", name, "cat", "/var/cache/warp-ip.txt")
+            warp_ip = _docker("exec", name, "cat", "/var/cache/warp-ip.txt", timeout=10)
         except RuntimeError:
             pass
 
@@ -360,6 +371,9 @@ def renew_proxy(body: ContainerRef):
     """Trigger a WARP reconnect inside the container (disconnect → connect)."""
     name = body.name
     _get_one(name)  # 404 if unknown
+
+    if not _is_running(name):
+        raise HTTPException(409, f"Container {name} is not running")
 
     try:
         _docker("exec", name, "warp-cli", "--accept-tos", "disconnect")
