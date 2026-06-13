@@ -298,8 +298,7 @@ class ProxyInfo(BaseModel):
 
 class ProxyListResponse(BaseModel):
     proxies: list[ProxyInfo]
-    count: int
-    healthy_count: int
+    active: int
     capacity: int
     available: int
     version: str
@@ -386,11 +385,9 @@ def list_proxies():
     """Return every warp-proxy container managed by this server."""
     state = _load_state()
     proxies = [_build_proxy_info(name, meta) for name, meta in sorted(state.items())]
-    healthy_count = sum(1 for p in proxies if p.healthy)
     return ProxyListResponse(
         proxies=proxies,
-        count=len(proxies),
-        healthy_count=healthy_count,
+        active=len(proxies),
         capacity=MAX_INSTANCES,
         available=MAX_INSTANCES - len(proxies),
         version=VERSION,
