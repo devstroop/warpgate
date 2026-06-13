@@ -52,6 +52,10 @@ MAX_INSTANCES = int(os.environ.get("MAX_INSTANCES", "10"))
 API_KEY = os.environ.get("MANAGER_API_KEY", "")
 STOP_TIMEOUT = int(os.environ.get("STOP_TIMEOUT", "10"))
 DOCKER_TIMEOUT = int(os.environ.get("DOCKER_TIMEOUT", "60"))
+# Advertised host for constructing proxy URLs (defaults to auto-detect via socket)
+ADVERTISED_HOST = os.environ.get("ADVERTISED_HOST", "") or socket.gethostbyname(socket.gethostname())
+
+VERSION = "0.2.0"
 
 # Docker label keys
 LABEL_MANAGED = "warp.manager"
@@ -165,6 +169,17 @@ async def _health_monitor(app: FastAPI):
                                 changed = True
                         except RuntimeError:
                             pass
+                        try:
+                            warp_status = _docker("exec", name, "warp-cli", "--accept-tos", "status", timeout=10)
+                            new_warp = "Connected" in warp_status
+                            old_warp = state[name].get("warp_connected", False)
+                            if new_warp != old_warp:
+                                state[name]["warp_connected"] = new_warp
+                                changed = True
+                                if not new_warp:
+                                    log.warning("Proxy %s WARP disconnected", name)
+                        except RuntimeError:
+                            pass
                 except RuntimeError:
                     if name in state:
                         del state[name]
@@ -220,7 +235,7 @@ async def lifespan(app: FastAPI):
     log.info("Shutting down warp-proxy manager")
 
 
-app = FastAPI(title="warp-proxy-manager", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="warp-proxy-manager", version=VERSION, lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -249,9 +264,20 @@ class ProxyInfo(BaseModel):
     name: str
     socks_port: int
     http_port: int
+    socks5_url: str
+    http_url: str
     status: str
+    healthy: bool = False
+    warp_connected: bool = False
     warp_ip: str | None = None
     created: str
+
+
+class ProxyListResponse(BaseModel):
+    proxies: list[ProxyInfo]
+    count: int
+    healthy_count: int
+    version: str
 
 
 class CreateRequest(BaseModel):
@@ -276,9 +302,10 @@ def _get_one(name: str) -> dict:
 
 
 def _build_proxy_info(name: str, meta: dict) -> ProxyInfo:
-    """Resolve live status & WARP IP for a proxy."""
+    """Resolve live status, WARP connectivity, and health for a proxy."""
     status = "unknown"
     warp_ip: str | None = meta.get("warp_ip")
+    warp_connected = bool(meta.get("warp_connected", False))
 
     try:
         inspect = json.loads(_docker("inspect", name))
@@ -288,15 +315,33 @@ def _build_proxy_info(name: str, meta: dict) -> ProxyInfo:
 
     if status == "running":
         try:
-            warp_ip = _docker("exec", name, "cat", "/var/cache/warp-ip.txt", timeout=10)
+            warp_ip = _docker("exec", name, "cat", "/var/cache/warp-ip.txt", timeout=10).strip() or warp_ip
+        except RuntimeError:
+            pass
+        try:
+            warp_status = _docker("exec", name, "warp-cli", "--accept-tos", "status", timeout=10)
+            warp_connected = "Connected" in warp_status
         except RuntimeError:
             pass
 
+    # A proxy is healthy if status=="running" AND 3proxy is listening (docker HEALTHCHECK equivalent)
+    healthy = (
+        status == "running"
+        and warp_connected
+    )
+
+    socks_port = meta["socks_port"]
+    http_port = meta["http_port"]
+
     return ProxyInfo(
         name=name,
-        socks_port=meta["socks_port"],
-        http_port=meta["http_port"],
+        socks_port=socks_port,
+        http_port=http_port,
+        socks5_url=f"socks5://{ADVERTISED_HOST}:{socks_port}",
+        http_url=f"http://{ADVERTISED_HOST}:{http_port}",
         status=status,
+        healthy=healthy,
+        warp_connected=warp_connected,
         warp_ip=warp_ip.strip() if warp_ip else None,
         created=meta["created"],
     )
@@ -306,16 +351,31 @@ def _build_proxy_info(name: str, meta: dict) -> ProxyInfo:
 # routes
 # ---------------------------------------------------------------------------
 
-@app.get("/", response_model=list[ProxyInfo])
+@app.get("/", response_model=ProxyListResponse)
 def list_proxies():
     """Return every warp-proxy container managed by this server."""
     state = _load_state()
-    return [_build_proxy_info(name, meta) for name, meta in sorted(state.items())]
+    proxies = [_build_proxy_info(name, meta) for name, meta in sorted(state.items())]
+    healthy_count = sum(1 for p in proxies if p.healthy)
+    return ProxyListResponse(
+        proxies=proxies,
+        count=len(proxies),
+        healthy_count=healthy_count,
+        version=VERSION,
+    )
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    state = _load_state()
+    proxies = [_build_proxy_info(name, meta) for name, meta in sorted(state.items())]
+    healthy_count = sum(1 for p in proxies if p.healthy)
+    return {
+        "status": "ok",
+        "version": VERSION,
+        "proxies_total": len(proxies),
+        "proxies_healthy": healthy_count,
+    }
 
 
 @app.get("/{name}", response_model=ProxyInfo)
@@ -392,7 +452,12 @@ async def create_proxy(body: CreateRequest | None = None):
         name=name,
         socks_port=socks_port,
         http_port=http_port,
+        socks5_url=f"socks5://{ADVERTISED_HOST}:{socks_port}",
+        http_url=f"http://{ADVERTISED_HOST}:{http_port}",
         status="starting",
+        healthy=False,
+        warp_connected=False,
+        warp_ip=None,
         created=created,
     )
 
