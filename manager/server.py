@@ -524,13 +524,15 @@ def renew_proxy(body: RenewRequest):
     old_ip = _get_warp_ip(name) if force else None
 
     # ------------------------------------------------------------------
-    # force mode — poll until the IP actually changes
+    # force mode — delete registration + re-register to get a new IP
     # ------------------------------------------------------------------
     if force and old_ip:
         for attempt in range(1, FORCE_RENEW_ATTEMPTS + 1):
             try:
-                _docker("exec", name, "warp-cli", "--accept-tos", "disconnect")
-                time.sleep(3)
+                _docker("exec", name, "warp-cli", "--accept-tos", "delete")
+                time.sleep(2)
+                _docker("exec", name, "warp-cli", "--accept-tos", "register")
+                time.sleep(2)
                 _docker("exec", name, "warp-cli", "--accept-tos", "connect")
             except RuntimeError as e:
                 raise HTTPException(500, str(e)) from e
