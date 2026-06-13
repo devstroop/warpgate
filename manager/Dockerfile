@@ -21,6 +21,9 @@ COPY server.py .
 
 EXPOSE 8000
 
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s \
+  CMD curl -sf http://127.0.0.1:8000/health || exit 1
+
 ENV DATA_DIR=/data
 VOLUME ["/data"]
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 : "${WARP_IP_CACHE:=/var/cache/warp-ip.txt}"
 : "${WARP_WAIT_RETRIES:=30}"

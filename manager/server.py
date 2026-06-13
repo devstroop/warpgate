@@ -59,10 +59,12 @@ LABEL_SOCKS = "warp.socks"
 LABEL_HTTP = "warp.http"
 LABEL_CREATED = "warp.created"
 
-# port-creation lock to prevent race conditions
-_port_lock = asyncio.Lock()
-# state file lock for atomic read/write
-_state_lock = asyncio.Lock()
+if not API_KEY:
+    log.warning("MANAGER_API_KEY is not set — manager API is open to anyone on the network!")
+
+# global lock for all state-modifying operations — prevents races between
+# port allocation, docker commands, and state persistence
+_global_lock = asyncio.Lock()
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -98,9 +100,11 @@ def _load_state() -> dict:
 
 
 def _save_state(state: dict) -> None:
-    """Persist proxy registry."""
+    """Persist proxy registry atomically (temp file + rename)."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    STATE_FILE.write_text(json.dumps(state, indent=2))
+    tmp = STATE_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, indent=2))
+    tmp.rename(STATE_FILE)
 
 
 def _next_ports(state: dict) -> tuple[int, int]:
@@ -136,6 +140,42 @@ def _ensure_unused_ports(socks_port: int, http_port: int) -> None:
 # lifecycle
 # ---------------------------------------------------------------------------
 
+async def _health_monitor(app: FastAPI):
+    """Periodically check all managed proxies and update state."""
+    while True:
+        await asyncio.sleep(60)
+        try:
+            state = _load_state()
+            changed = False
+            for name in list(state):
+                try:
+                    inspect = json.loads(_docker("inspect", name))
+                    new_status = inspect[0]["State"]["Status"]
+                    old_status = state[name].get("status")
+                    if new_status != old_status:
+                        state[name]["status"] = new_status
+                        changed = True
+                        log.info("Proxy %s status: %s → %s", name, old_status or "unknown", new_status)
+                    # refresh warp IP if running
+                    if new_status == "running":
+                        try:
+                            ip = _docker("exec", name, "cat", "/var/cache/warp-ip.txt", timeout=10).strip()
+                            if ip and ip != state[name].get("warp_ip"):
+                                state[name]["warp_ip"] = ip
+                                changed = True
+                        except RuntimeError:
+                            pass
+                except RuntimeError:
+                    if name in state:
+                        del state[name]
+                        changed = True
+                        log.warning("Proxy %s disappeared from Docker, pruned from state", name)
+            if changed:
+                _save_state(state)
+        except Exception:
+            log.exception("Health monitor iteration failed")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Sync persisted state with running Docker containers on startup."""
@@ -159,9 +199,24 @@ async def lifespan(app: FastAPI):
         log.info("Pruned %d stale state entries", len(state) - len(cleaned))
         _save_state(cleaned)
 
+    # detect orphan containers (managed label but not in state)
+    orphaned = running - set(cleaned)
+    if orphaned:
+        log.warning("Found %d orphaned containers not in state: %s", len(orphaned), orphaned)
+
     app.state.proxies = cleaned
     log.info("Manager ready — tracking %d proxies", len(cleaned))
+
+    # start background health monitor
+    monitor_task = asyncio.create_task(_health_monitor(app))
+
     yield
+
+    monitor_task.cancel()
+    try:
+        await monitor_task
+    except asyncio.CancelledError:
+        pass
     log.info("Shutting down warp-proxy manager")
 
 
@@ -273,7 +328,7 @@ def get_proxy(name: str):
 @app.post("/create", response_model=ProxyInfo, status_code=201)
 async def create_proxy(body: CreateRequest | None = None):
     """Launch a new warp-proxy container with unique ports."""
-    async with _port_lock:
+    async with _global_lock:
         state = _load_state()
         socks_port, http_port = _next_ports(state)
 
@@ -311,6 +366,10 @@ async def create_proxy(body: CreateRequest | None = None):
             "--cap-add", "SYS_ADMIN",
             "--device", "/dev/net/tun",
             "--sysctl", "net.ipv6.conf.all.disable_ipv6=0",
+            "--memory", "256m",
+            "--memory-swap", "512m",
+            "--cpus", "1",
+            "--pids-limit", "100",
             "--restart", "unless-stopped",
             WARP_IMAGE,
         ]
@@ -387,42 +446,43 @@ def renew_proxy(body: ContainerRef):
 
 
 @app.delete("/delete", response_model=dict)
-def delete_proxy(body: ContainerRef):
+async def delete_proxy(body: ContainerRef):
     """Stop and remove a warp-proxy container and its volumes."""
-    name = body.name
-    state = _load_state()
-    if name not in state:
-        raise HTTPException(404, f"Unknown proxy: {name}")
+    async with _global_lock:
+        name = body.name
+        state = _load_state()
+        if name not in state:
+            raise HTTPException(404, f"Unknown proxy: {name}")
 
-    errors: list[str] = []
+        errors: list[str] = []
 
-    # stop with timeout
-    try:
-        _docker("stop", "-t", str(STOP_TIMEOUT), name)
-    except RuntimeError as e:
-        errors.append(f"stop: {e}")
-
-    # remove container
-    try:
-        _docker("rm", "-v", name)
-    except RuntimeError as e:
-        errors.append(f"rm: {e}")
-
-    # remove named volumes
-    for vol_suffix in ("-warp-data", "-warp-cache"):
-        vol_name = f"{name}{vol_suffix}"
+        # stop with timeout
         try:
-            _docker("volume", "rm", "-f", vol_name)
-        except RuntimeError:
-            pass  # volume may not exist
+            _docker("stop", "-t", str(STOP_TIMEOUT), name)
+        except RuntimeError as e:
+            errors.append(f"stop: {e}")
 
-    if errors:
-        raise HTTPException(500, "; ".join(errors))
+        # remove container
+        try:
+            _docker("rm", "-v", name)
+        except RuntimeError as e:
+            errors.append(f"rm: {e}")
 
-    del state[name]
-    _save_state(state)
-    log.info("Deleted proxy %s", name)
-    return {"name": name, "action": "deleted", "status": "ok"}
+        # remove named volumes
+        for vol_suffix in ("-warp-data", "-warp-cache"):
+            vol_name = f"{name}{vol_suffix}"
+            try:
+                _docker("volume", "rm", "-f", vol_name)
+            except RuntimeError:
+                pass  # volume may not exist
+
+        if errors:
+            raise HTTPException(500, "; ".join(errors))
+
+        del state[name]
+        _save_state(state)
+        log.info("Deleted proxy %s", name)
+        return {"name": name, "action": "deleted", "status": "ok"}
 
 
 
