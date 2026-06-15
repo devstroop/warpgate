@@ -1,7 +1,7 @@
 services:
-  warp-proxy:
+  proxy:
     build: .
-    image: warp-proxy:latest
+    image: warpgate:latest
     ports:
       - "1080:1080"
       - "3128:3128"

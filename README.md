@@ -1,4 +1,4 @@
-# warp-proxy
+# warpgate
 
 SOCKS5 + HTTP/HTTPS proxy over Cloudflare WARP, powered by [3proxy](https://github.com/3proxy/3proxy).
 
