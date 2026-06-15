@@ -19,8 +19,8 @@ services:
       - "3128:3128"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./docker-entrypoint-nginx.sh:/docker-entrypoint-nginx.sh:ro
-    entrypoint: ["/bin/sh", "/docker-entrypoint-nginx.sh"]
+      - ./entrypoint-nginx.sh:/entrypoint-nginx.sh:ro
+    entrypoint: ["/bin/sh", "/entrypoint-nginx.sh"]
     depends_on:
       - warpgate
     networks:
