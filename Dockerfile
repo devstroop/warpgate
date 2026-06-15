@@ -41,7 +41,7 @@ HEALTHCHECK --interval=60s --timeout=10s --retries=3 --start-period=30s \
   CMD ss -tlnp | grep -q ':1080' || ss -tlnp | grep -q ':3128' || exit 1
 
 COPY 3proxy.cfg /etc/3proxy/3proxy.cfg
-COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

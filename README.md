@@ -100,8 +100,8 @@ warpgate/
 ├── compose.yaml                   # Single proxy deployment
 ├── compose.cluster.yaml           # Multi-proxy cluster with nginx LB
 ├── nginx.conf                     # TCP stream load balancer config
-├── docker-entrypoint.sh           # WARP registration/connect/3proxy
-├── docker-entrypoint-nginx.sh     # DNS wait + nginx start
+├── entrypoint.sh           # WARP registration/connect/3proxy
+├── entrypoint-nginx.sh     # DNS wait + nginx start
 ├── 3proxy.cfg                     # Default proxy config
 ├── Makefile                       # Dev commands
 ├── .dockerignore
