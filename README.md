@@ -1,4 +1,4 @@
-# warpgate
+# WarpGate
 
 SOCKS5 + HTTP/HTTPS proxy over Cloudflare WARP, powered by [3proxy](https://github.com/3proxy/3proxy).
 
@@ -16,17 +16,20 @@ The proxy listens on:
 - `1080` — SOCKS5 proxy
 - `3128` — HTTP/HTTPS proxy
 
-### Multi-proxy with manager API (compose.manager.yaml)
+### Multi-proxy cluster (compose.cluster.yaml)
 
 ```bash
-# Build the warp-proxy image first
-docker compose build warp-proxy
+# Build the image first
+docker compose build
 
-# Start the manager (spawns proxies on demand)
-docker compose -f compose.manager.yaml up -d
+# Start cluster (default: 3 proxies)
+docker compose -f compose.cluster.yaml up -d --scale warpgate=3
+
+# Or use the Makefile
+make cluster N=5
 ```
 
-Manager API on `http://localhost:8000`. Set `MANAGER_API_KEY` in `.env` to enable auth.
+The cluster puts nginx in front as a TCP-level load balancer with `least_conn` across all warpgate instances. Scaling is dynamic — just use `--scale warpgate=N`.
 
 ## Usage
 
@@ -58,73 +61,48 @@ curl --socks5 127.0.0.1:1080 https://www.cloudflare.com/cdn-cgi/trace
 | `WARP_IP_CACHE` | `/var/cache/warp-ip.txt` | Where to cache the external IP from ipinfo.io |
 | `WARP_CLIENT_SECRET` | — | WARP Teams enrollment token (optional) |
 
-### Manager Environment Variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `MANAGER_API_KEY` | `""` | API key for auth (empty = no auth) |
-| `WARP_IMAGE` | `warp-proxy:latest` | Image tag for spawned containers |
-| `SOCKS_BASE` | `1080` | First SOCKS5 port to assign |
-| `HTTP_BASE` | `3128` | First HTTP proxy port to assign |
-| `MAX_INSTANCES` | `10` | Max proxy containers |
-| `DOCKER_TIMEOUT` | `60` | Docker CLI timeout (seconds) |
-| `STOP_TIMEOUT` | `10` | Container stop timeout (seconds) |
-
-## Manager API
-
-See `compose.manager.yaml` and [.env.example](.env.example).
-
-| Method | Path | Auth | Description |
-|---|---|---|---|
-| `GET` | `/health` | No | Health check |
-| `GET` | `/` | `X-API-Key` | List all proxies |
-| `GET` | `/{name}` | `X-API-Key` | Get one proxy |
-| `POST` | `/create` | `X-API-Key` | Spin up new instance |
-| `POST` | `/restart` | `X-API-Key` | Restart/start a container |
-| `POST` | `/renew` | `X-API-Key` | WARP disconnect → connect |
-| `DELETE` | `/delete` | `X-API-Key` | Stop, remove, clean volumes |
-
 ### Custom 3proxy Config
 
 Mount your own config:
 
-```bash
-docker compose run --entrypoint '' warp-proxy sh
-```
-
-Or mount a volume:
-
 ```yaml
 services:
-  warp-proxy:
+  warpgate:
     volumes:
       - ./custom.cfg:/etc/3proxy/3proxy.cfg
 ```
 
 See [3proxy.cfg docs](https://github.com/3proxy/3proxy/wiki/3proxy.cfg) for all options.
 
+## Architecture
+
+```
+Client → nginx (TCP least_conn) → warpgate[1..N] (WARP + 3proxy) → Internet
+```
+
+- **nginx** handles TCP-level load balancing with DNS-based upstream discovery
+- **warpgate** runs Cloudflare WARP + 3proxy (SOCKS5 on :1080, HTTP on :3128)
+- Scale by running `docker compose -f compose.cluster.yaml up -d --scale warpgate=N`
+
 ## Stack
 
 - [3proxy](https://github.com/3proxy/3proxy) — Tiny proxy server
 - [Cloudflare WARP](https://developers.cloudflare.com/warp-client/) — Encrypted tunnel
-- [FastAPI](https://fastapi.tiangolo.com/) — Manager REST API
 - Ubuntu 24.04 (noble) base image
 
 ## Files
 
 ```
-warp-proxy/
-├── Dockerfile               # Single-stage build with 3proxy + WARP
-├── compose.yaml             # Single proxy deployment
-├── compose.manager.yaml     # Manager-only deployment
-├── docker-entrypoint.sh     # WARP registration/connect/disconnect
-├── 3proxy.cfg               # Default proxy config
-├── .env.example             # Environment variable reference
-├── .dockerignore            # Docker build context exclusions
+warpgate/
+├── Dockerfile                     # Single-stage build with 3proxy + WARP
+├── compose.yaml                   # Single proxy deployment
+├── compose.cluster.yaml           # Multi-proxy cluster with nginx LB
+├── nginx.conf                     # TCP stream load balancer config
+├── docker-entrypoint.sh           # WARP registration/connect/3proxy
+├── docker-entrypoint-nginx.sh     # DNS wait + nginx start
+├── 3proxy.cfg                     # Default proxy config
+├── Makefile                       # Dev commands
+├── .dockerignore
 ├── .gitignore
-├── README.md
-└── manager/
-    ├── Dockerfile           # Python + Docker CLI
-    ├── server.py            # FastAPI manager app
-    └── requirements.txt     # Python dependencies
+└── README.md
 ```

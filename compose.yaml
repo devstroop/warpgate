@@ -1,7 +1,7 @@
 services:
-  proxy:
+  warpgate:
     build: .
-    image: warpgate:latest
+    image: warpgate:local
     ports:
       - "1080:1080"
       - "3128:3128"
@@ -10,8 +10,8 @@ services:
       WARP_WAIT_RETRIES: "30"
       WARP_WAIT_INTERVAL: "2"
     volumes:
-      - warp-data:/var/lib/cloudflare-warp
-      - warp-cache:/var/cache
+      - warpgate-data:/var/lib/cloudflare-warp
+      - warpgate-cache:/var/cache
     cap_add:
       - NET_ADMIN
       - SYS_ADMIN
@@ -22,5 +22,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  warp-data:
-  warp-cache:
+  warpgate-data:
+  warpgate-cache:

@@ -1,11 +1,10 @@
-.PHONY: help build up down clean test
+.PHONY: help build up down cluster cluster-down clean logs cluster-logs
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
-build: ## Build all Docker images
+build: ## Build Docker image
 	docker compose build
-	docker compose -f compose.manager.yaml build
 
 up: ## Start single proxy
 	docker compose up -d
@@ -13,22 +12,18 @@ up: ## Start single proxy
 down: ## Stop single proxy
 	docker compose down
 
-manager: ## Start manager
-	docker compose -f compose.manager.yaml up -d
+cluster: ## Start cluster with N proxies (scale via: make cluster N=5)
+	docker compose -f compose.cluster.yaml up -d --scale warpgate=$(or $(N),3)
 
-manager-down: ## Stop manager
-	docker compose -f compose.manager.yaml down
+cluster-down: ## Stop cluster
+	docker compose -f compose.cluster.yaml down
 
 clean: ## Remove all containers, volumes, images
 	docker compose down -v --rmi local
-	docker compose -f compose.manager.yaml down -v --rmi local
+	docker compose -f compose.cluster.yaml down -v --rmi local
 
-lint: ## Lint entrypoint and Python
-	shellcheck docker-entrypoint.sh
-	cd manager && ruff check server.py
-
-logs: ## Tail all logs
+logs: ## Tail single proxy logs
 	docker compose logs -f
 
-manager-logs: ## Tail manager logs
-	docker compose -f compose.manager.yaml logs -f
+cluster-logs: ## Tail cluster logs
+	docker compose -f compose.cluster.yaml logs -f
