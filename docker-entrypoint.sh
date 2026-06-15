@@ -1,7 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-: "${WARP_IP_CACHE:=/var/cache/warp-ip.txt}"
 : "${WARP_WAIT_RETRIES:=30}"
 : "${WARP_WAIT_INTERVAL:=2}"
 
@@ -66,9 +65,6 @@ for ((i = 1; i <= WARP_WAIT_RETRIES; i++)); do
     fi
     sleep "$WARP_WAIT_INTERVAL"
 done
-
-mkdir -p "$(dirname "$WARP_IP_CACHE")"
-curl -sf --connect-timeout 5 --max-time 10 https://ipinfo.io/ip > "$WARP_IP_CACHE" 2>/dev/null && echo "External IP cached" || true
 
 mkdir -p /var/log/3proxy
 

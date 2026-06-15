@@ -58,7 +58,6 @@ curl --socks5 127.0.0.1:1080 https://www.cloudflare.com/cdn-cgi/trace
 |---|---|---|
 | `WARP_WAIT_RETRIES` | `30` | Number of status-poll retries before starting 3proxy |
 | `WARP_WAIT_INTERVAL` | `2` | Seconds between status polls |
-| `WARP_IP_CACHE` | `/var/cache/warp-ip.txt` | Where to cache the external IP from ipinfo.io |
 | `WARP_CLIENT_SECRET` | — | WARP Teams enrollment token (optional) |
 
 ### Custom 3proxy Config
