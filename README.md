@@ -19,6 +19,9 @@ The proxy listens on:
 ### Multi-proxy cluster (compose.cluster.yaml)
 
 ```bash
+# One-time setup: create the shared network
+docker network create warpgate_network
+
 # Build the image first
 docker compose build
 

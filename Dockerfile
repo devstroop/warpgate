@@ -1,7 +1,7 @@
 FROM ubuntu:noble
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates gnupg software-properties-common \
+    curl ca-certificates gnupg iproute2 \
     && rm -rf /var/lib/apt/lists/*
 
 ARG TARGETARCH
