@@ -25,7 +25,7 @@ trap cleanup EXIT
 trap 'exit 0' TERM INT
 
 echo "Starting WARP daemon..."
-/usr/bin/warp-svc &
+/usr/bin/warp-svc >/dev/null 2>&1 &
 WARP_SVC_PID=$!
 
 echo "Waiting for WARP daemon to be ready..."
@@ -42,14 +42,12 @@ if [ ! -f /var/lib/cloudflare-warp/reg.json ]; then
     warp-cli --accept-tos registration new
 fi
 
+echo "Setting MASQUE tunnel protocol..."
+warp-cli --accept-tos tunnel protocol set MASQUE
+
 echo "Connecting to WARP..."
 if ! warp-cli --accept-tos connect; then
     echo "ERROR: WARP connect failed (exit $?)"
-fi
-
-if [ -n "$WARP_CLIENT_SECRET" ]; then
-    echo "WARP Teams token detected, enrolling..."
-    warp-cli --accept-tos teams-enroll-token "$WARP_CLIENT_SECRET" || true
 fi
 
 echo "Waiting for WARP connection..."
