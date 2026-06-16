@@ -39,7 +39,13 @@ done
 
 if [ ! -f /var/lib/cloudflare-warp/reg.json ]; then
     echo "Registering WARP..."
-    warp-cli --accept-tos registration new
+    if output=$(warp-cli --accept-tos registration new 2>&1); then
+        # Extract just the registration ID for logging
+        reg_id=$(echo "$output" | grep -oP 'Registration:\s*\K\S+' || true)
+        echo "WARP registered: $reg_id"
+    else
+        echo "ERROR: WARP registration failed: $output" >&2
+    fi
 fi
 
 echo "Setting MASQUE tunnel protocol..."
