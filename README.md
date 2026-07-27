@@ -2,19 +2,27 @@
 
 SOCKS5 + HTTP/HTTPS proxy over Cloudflare WARP, powered by [3proxy](https://github.com/3proxy/3proxy).
 
-All traffic is routed through Cloudflare WARP for privacy and security.
+All traffic is routed through Cloudflare WARP for privacy and IP diversity.
 
 ## Quick Start
 
-### Single proxy (compose.yaml)
+### Proxy container only
 
 ```bash
-docker compose up -d
+docker compose up -d warpgate
 ```
 
 The proxy listens on:
 - `1080` — SOCKS5 proxy
 - `3128` — HTTP/HTTPS proxy
+
+### Full stack (proxy pool + orchestrator)
+
+```bash
+docker compose up -d --scale warpgate=3
+```
+
+This starts 3 warpgate proxy nodes and the orchestrator control-plane on `:9090`.
 
 ## Usage
 
@@ -35,9 +43,132 @@ curl --socks5 127.0.0.1:1080 https://www.cloudflare.com/cdn-cgi/trace
 # Look for: warp=on
 ```
 
+## Orchestrator
+
+A single Python control-plane that manages the warpgate proxy pool via the Docker API.
+It creates, scales, health-checks, and rotates warpgate containers — proxy traffic flows
+directly to the containers (SOCKS5/HTTP), not through the orchestrator.
+
+### Architecture
+
+```
+warpgate-orchestrator (Python, docker-py)
+  │  API :9090
+  │  Docker socket → manages warpgate containers
+  │
+  └── warpgate-1 ── SOCKS5 :1080 ──→ upstream
+  └── warpgate-2 ── SOCKS5 :1080 ──→ upstream
+  └── warpgate-3 ── SOCKS5 :1080 ──→ upstream
+```
+
+Clients (e.g. ai-gateway) connect to warpgate containers directly via SOCKS5.
+The orchestrator is a **management-only** control plane.
+
+### API Reference
+
+#### `GET /health`
+
+Pool liveness. Returns 200 when at least one proxy is healthy.
+
+```json
+{"status": "ok", "pool_size": 3, "healthy": 2}
+```
+
+#### `GET /status`
+
+Full pool status with per-proxy detail.
+
+```json
+{
+  "version": "1.0",
+  "pool_size": 3,
+  "healthy": 3,
+  "degraded": 0,
+  "target": 3,
+  "proxies": [
+    {
+      "name": "warpgate-a1b2c3d4",
+      "socks5": "socks5://warpgate-a1b2c3d4:1080",
+      "healthy": true,
+      "warp": "Connected",
+      "in_flight": 0,
+      "uptime_s": 120.5
+    }
+  ]
+}
+```
+
+#### `GET /proxies`
+
+List all proxy endpoints (compact, for config generation).
+
+```json
+[
+  {"name": "warpgate-a1b2c3d4", "socks5": "socks5://warpgate-a1b2c3d4:1080", "healthy": true, "warp": "Connected"},
+  {"name": "warpgate-e5f6g7h8", "socks5": "socks5://warpgate-e5f6g7h8:1080", "healthy": true, "warp": "Connected"}
+]
+```
+
+#### `POST /proxies`
+
+Create a new proxy container. Returns the endpoint details.
+
+```json
+{"name": "warpgate-abc12345", "socks5": "socks5://warpgate-abc12345:1080"}
+```
+
+#### `DELETE /proxies/<name>`
+
+Remove a proxy container from the pool and Docker. Returns 404 if not found.
+
+#### `POST /proxies/<name>/rotate`
+
+Trigger a WARP reconnection on a specific proxy (disconnect + reconnect).
+Returns updated health after rotation.
+
+#### `POST /scale?count=N`
+
+Scale the pool to `N` containers. Accepts `count` as query param or JSON body.
+
+```json
+{"status": "scaled", "target": 5, "pool_size": 5}
+```
+
+### Environment Variables (Orchestrator)
+
+| Variable | Default | Description |
+|---|---|---|
+| `WARPATE_IMAGE` | `warpgate:local` | Docker image for proxy containers |
+| `WARPATE_PREFIX` | `warpgate-` | Container name prefix |
+| `WARPATE_COUNT` | `3` | Target pool size on startup |
+| `WARPATE_NETWORK` | `warpgate_warpgate-net` | Docker network to attach containers |
+| `ORCHESTRATOR_PORT` | `9090` | Management API listen port |
+| `ORCHESTRATOR_DEBUG` | _(none)_ | Set to `1` for debug logging |
+| `ORCHESTRATOR_SKIP_INIT` | _(none)_ | Set to `1` to skip pool discovery at startup |
+
+### Integration with ai-gateway
+
+The orchestrator manages the proxy pool independently. ai-gateway consumes
+a static list of proxy URLs from its own `config.toml`:
+
+```toml
+[warpgate]
+proxies = [
+  "socks5://warpgate-a1b2c3d4:1080",
+  "socks5://warpgate-e5f6g7h8:1080",
+  "socks5://warpgate-9i0jklmn:1080",
+]
+```
+
+To get the current proxy list from the orchestrator for config generation:
+
+```bash
+curl http://orchestrator:9090/proxies | jq -r '.[].socks5'
+```
+
 ## Configuration
 
-### Environment Variables
+### Container Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
@@ -57,21 +188,25 @@ services:
 
 See [3proxy.cfg docs](https://github.com/3proxy/3proxy/wiki/3proxy.cfg) for all options.
 
-## Stack
-
-- [3proxy](https://github.com/3proxy/3proxy) — Tiny proxy server
-- [Cloudflare WARP](https://developers.cloudflare.com/warp-client/) — Encrypted tunnel
-- Ubuntu 24.04 (noble) base image
-
 ## Files
 
 ```
 warpgate/
-├── Dockerfile                     # Single-stage build with 3proxy + WARP
-├── compose.yaml                   # Single proxy deployment
-├── entrypoint.sh                  # WARP registration/connect/3proxy
-├── 3proxy.cfg                     # Default proxy config
-├── .dockerignore
-├── .gitignore
+├── Dockerfile                       # Pure proxy container (WARP + 3proxy)
+├── compose.yaml                     # Single/multi-instance + orchestrator
+├── entrypoint.sh                    # Container startup
+├── 3proxy.cfg                       # Default proxy config
+├── orchestrator/
+│   ├── Dockerfile                   # Orchestrator container image
+│   ├── requirements.txt             # Python dependencies
+│   └── server.py                    # Orchestrator management server
 └── README.md
 ```
+
+## Stack
+
+- [3proxy](https://github.com/3proxy/3proxy) — Tiny proxy server
+- [Cloudflare WARP](https://developers.cloudflare.com/warp-client/) — Encrypted tunnel
+- [docker-py](https://github.com/docker/docker-py) — Docker SDK for Python
+- [Flask](https://flask.palletsprojects.com/) — HTTP API framework
+- Ubuntu 24.04 (noble) base image

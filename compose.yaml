@@ -18,6 +18,34 @@ services:
       - net.ipv6.conf.all.disable_ipv6=0
     devices:
       - /dev/net/tun
+    networks:
+      - warpgate-net
+
+  orchestrator:
+    build: ./orchestrator
+    image: warpgate-orchestrator:local
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    environment:
+      WARPATE_IMAGE: "warpgate:local"
+      WARPATE_PREFIX: "warpgate-"
+      WARPATE_COUNT: "3"
+      # Network name as created by Docker Compose: <project>_<network>
+      # Default project name from directory is "warpgate".
+      WARPATE_NETWORK: "warpgate_warpgate-net"
+      ORCHESTRATOR_PORT: "9090"
+      # Set a strong random key to protect the management API:
+      # ORCHESTRATOR_API_KEY: "change-me"
+    volumes:
+      # Requires Docker socket access to manage containers.
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - warpgate-net
+
+networks:
+  warpgate-net:
+    driver: bridge
 
 volumes:
   warpgate-data:
