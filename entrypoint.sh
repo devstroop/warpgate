@@ -70,6 +70,9 @@ for ((i = 1; i <= WARP_WAIT_RETRIES; i++)); do
     sleep "$WARP_WAIT_INTERVAL"
 done
 
+echo "Capturing egress IP..."
+curl -s --max-time 5 https://ipinfo.io/ip > /tmp/egress_ip 2>/dev/null || echo "unknown" > /tmp/egress_ip
+
 mkdir -p /var/log/3proxy
 
 echo "Starting 3proxy..."
