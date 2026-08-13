@@ -21,9 +21,9 @@ services:
     networks:
       - warpgate-net
 
-  orchestrator:
-    build: ./orchestrator
-    image: warpgate-orchestrator:local
+  manager:
+    build: ./manager
+    image: warpgate-manager:local
     restart: unless-stopped
     ports:
       - "9090:9090"
@@ -34,9 +34,9 @@ services:
       # Network name as created by Docker Compose: <project>_<network>
       # Default project name from directory is "warpgate".
       WARPATE_NETWORK: "warpgate_warpgate-net"
-      ORCHESTRATOR_PORT: "9090"
+      MANAGER_PORT: "9090"
       # Set a strong random key to protect the management API:
-      # ORCHESTRATOR_API_KEY: "change-me"
+      # MANAGER_API_KEY: "change-me"
     volumes:
       # Requires Docker socket access to manage containers.
       - /var/run/docker.sock:/var/run/docker.sock

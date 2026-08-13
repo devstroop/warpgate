@@ -1,4 +1,4 @@
-"""WarpGate Orchestrator — single control-plane for managing warpgate proxy containers.
+"""WarpGate Manager — single control-plane for managing warpgate proxy containers.
 
 Manages a pool of warpgate containers (WARP + 3proxy) via the Docker API.
 SOCKS5/HTTP proxy traffic goes directly to containers — this is a management
@@ -30,10 +30,10 @@ WARPATE_COUNT = int(os.environ.get("WARPATE_COUNT", "3"))
 WARPATE_NETWORK = os.environ.get("WARPATE_NETWORK", "warpgate-net")
 _API_KEY: str | None = None  # lazily initialized in _get_api_key()
 _api_key_lock = threading.Lock()
-ORCHESTRATOR_PORT = int(os.environ.get("ORCHESTRATOR_PORT", "9090"))
-MAX_POOL_SIZE = int(os.environ.get("ORCHESTRATOR_MAX_POOL", "20"))
+MANAGER_PORT = int(os.environ.get("MANAGER_PORT", "9090"))
+MAX_POOL_SIZE = int(os.environ.get("MANAGER_MAX_POOL", "20"))
 
-RATE_LIMIT_ATTEMPTS = int(os.environ.get("ORCHESTRATOR_RATE_LIMIT", "10"))
+RATE_LIMIT_ATTEMPTS = int(os.environ.get("MANAGER_RATE_LIMIT", "10"))
 RATE_LIMIT_WINDOW = 60  # seconds
 
 # Reusable Docker client (lazily initialized, resets on failure)
@@ -81,13 +81,13 @@ def _get_api_key() -> str:
         with _api_key_lock:
             # Double-check after acquiring lock
             if _API_KEY is None:
-                key = os.environ.get("ORCHESTRATOR_API_KEY")
+                key = os.environ.get("MANAGER_API_KEY")
                 if not key:
                     key = secrets.token_urlsafe(32)
                     # Log only a masked prefix so the full key never appears in logs.
                     app.logger.warning(
-                        "ORCHESTRATOR_API_KEY not set — generated ephemeral key: "
-                        "%s... (masked). Set ORCHESTRATOR_API_KEY for a persistent key.",
+                        "MANAGER_API_KEY not set — generated ephemeral key: "
+                        "%s... (masked). Set MANAGER_API_KEY for a persistent key.",
                         key[:8],
                     )
                 _API_KEY = key
@@ -763,13 +763,13 @@ def authenticate():
 
 if __name__ == "__main__":
     logging.basicConfig(
-        level=logging.DEBUG if os.environ.get("ORCHESTRATOR_DEBUG") else logging.INFO,
+        level=logging.DEBUG if os.environ.get("MANAGER_DEBUG") else logging.INFO,
         format="[warpgate] %(message)s",
         stream=sys.stderr,
     )
     # Eagerly initialize the API key so the generated key is logged at startup
     _get_api_key()
-    if not os.environ.get("ORCHESTRATOR_SKIP_INIT"):
+    if not os.environ.get("MANAGER_SKIP_INIT"):
         initialize_pool()
-    debug = bool(os.environ.get("ORCHESTRATOR_DEBUG"))
-    app.run(host="0.0.0.0", port=ORCHESTRATOR_PORT, threaded=True, debug=debug)
+    debug = bool(os.environ.get("MANAGER_DEBUG"))
+    app.run(host="0.0.0.0", port=MANAGER_PORT, threaded=True, debug=debug)
