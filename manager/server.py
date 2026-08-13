@@ -8,7 +8,6 @@ API only.
 import hmac
 import logging
 import os
-import secrets
 import socket
 import sys
 import threading
@@ -69,28 +68,14 @@ def _get_docker_client():
         return _DOCKER_CLIENT
 
 
-def _get_api_key() -> str:
-    """Return the API key, generating a strong ephemeral one if not configured.
-
-    The key is generated once on first access, so it stays stable for the
-    lifetime of the process — even when the module is imported rather than
-    run directly.
-    """
+def _get_api_key() -> str | None:
+    """Return the configured API key, or None when auth is disabled."""
     global _API_KEY
     if _API_KEY is None:
         with _api_key_lock:
             # Double-check after acquiring lock
             if _API_KEY is None:
-                key = os.environ.get("MANAGER_API_KEY")
-                if not key:
-                    key = secrets.token_urlsafe(32)
-                    # Log only a masked prefix so the full key never appears in logs.
-                    app.logger.warning(
-                        "MANAGER_API_KEY not set — generated ephemeral key: "
-                        "%s... (masked). Set MANAGER_API_KEY for a persistent key.",
-                        key[:8],
-                    )
-                _API_KEY = key
+                _API_KEY = os.environ.get("MANAGER_API_KEY")
     return _API_KEY
 
 
@@ -182,6 +167,10 @@ pool_lock = threading.Lock()
 pool: list[ProxyEndpoint] = []
 target_count = WARPATE_COUNT
 
+# When the manager itself runs inside a container, its hostname is that
+# container's short ID — used to avoid discovering the manager as a proxy.
+SELF_CONTAINER_ID = socket.gethostname()
+
 
 # ── Docker helpers ──────────────────────────────────────────────
 
@@ -206,7 +195,6 @@ def get_container_warp_status(container):
     try:
         exit_code, output = container.exec_run(
             ["warp-cli", "--accept-tos", "status"],
-            timeout=10,
         )
         if exit_code != 0:
             return None
@@ -296,6 +284,10 @@ def discover_pool(client) -> list[ProxyEndpoint]:
         return results
 
     for c in containers:
+        # Skip the manager's own container: its hostname is the container's
+        # short ID, and its name may match the proxy prefix.
+        if c.short_id == SELF_CONTAINER_ID or c.id == SELF_CONTAINER_ID:
+            continue
         if c.name and c.name.startswith(WARPATE_PREFIX):
             ep = ProxyEndpoint(name=c.name, container_id=c.id or "")
             ep.healthy = container_is_healthy(c)
@@ -745,9 +737,12 @@ def initialize_pool():
 
 @app.before_request
 def authenticate():
+    api_key = _get_api_key()
+    if api_key is None:
+        return  # auth disabled — no MANAGER_API_KEY configured
     client_ip = request.remote_addr or "unknown"
     auth = request.headers.get("Authorization", "")
-    expected = f"Bearer {_get_api_key()}"
+    expected = f"Bearer {api_key}"
     if not hmac.compare_digest(auth, expected):
         # Rate-limit only failed authentication attempts, not all requests.
         # This allows legitimate traffic (e.g. health checks from load
@@ -767,7 +762,7 @@ if __name__ == "__main__":
         format="[warpgate] %(message)s",
         stream=sys.stderr,
     )
-    # Eagerly initialize the API key so the generated key is logged at startup
+    # Warm the API key lookup so auth state is resolved once at startup
     _get_api_key()
     if not os.environ.get("MANAGER_SKIP_INIT"):
         initialize_pool()
