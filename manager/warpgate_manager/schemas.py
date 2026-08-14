@@ -74,9 +74,9 @@ def to_pool_dict(proxies: list[ProxyEndpoint], target: int, include_proxies: boo
 def to_config_dict(target: int) -> dict:
     from . import config
     return {
-        "image": config.WARPATE_IMAGE,
-        "prefix": config.WARPATE_PREFIX,
-        "network": config.WARPATE_NETWORK,
+        "image": config.WARPGATE_IMAGE,
+        "prefix": config.WARPGATE_PREFIX,
+        "network": config.WARPGATE_NETWORK,
         "max_pool": config.MANAGER_MAX_POOL,
         "target": target,
     }

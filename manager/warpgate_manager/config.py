@@ -3,10 +3,10 @@
 import os
 
 # Proxy container image / naming / networking
-WARPATE_IMAGE = os.environ.get("WARPATE_IMAGE", "warpgate:local")
-WARPATE_PREFIX = os.environ.get("WARPATE_PREFIX", "warpgate-")
-WARPATE_COUNT = int(os.environ.get("WARPATE_COUNT", "3"))
-WARPATE_NETWORK = os.environ.get("WARPATE_NETWORK", "warpgate-net")
+WARPGATE_IMAGE = os.environ.get("WARPGATE_IMAGE", "warpgate:local")
+WARPGATE_PREFIX = os.environ.get("WARPGATE_PREFIX", "warpgate-")
+WARPGATE_COUNT = int(os.environ.get("WARPGATE_COUNT", "3"))
+WARPGATE_NETWORK = os.environ.get("WARPGATE_NETWORK", "warpgate-net")
 
 # Manager HTTP API
 MANAGER_PORT = int(os.environ.get("MANAGER_PORT", "9090"))

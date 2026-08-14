@@ -182,10 +182,10 @@ the reconciler.
 
 | Variable | Default | Description |
 |---|---|---|
-| `WARPATE_IMAGE` | `warpgate:local` | Docker image for proxy containers |
-| `WARPATE_PREFIX` | `warpgate-` | Container name prefix |
-| `WARPATE_COUNT` | `3` | Target pool size on startup |
-| `WARPATE_NETWORK` | `warpgate-net` | Docker network to attach containers (compose overrides this with `warpgate_warpgate-net`) |
+| `WARPGATE_IMAGE` | `warpgate:local` | Docker image for proxy containers |
+| `WARPGATE_PREFIX` | `warpgate-` | Container name prefix |
+| `WARPGATE_COUNT` | `3` | Target pool size on startup |
+| `WARPGATE_NETWORK` | `warpgate-net` | Docker network to attach containers (compose overrides this with `warpgate_warpgate-net`) |
 | `MANAGER_PORT` | `9090` | Management API listen port |
 | `MANAGER_API_KEY` | _(none)_ | Enables Bearer auth; leave unset **or empty** to disable |
 | `MANAGER_MAX_POOL` | `20` | Hard cap on pool size |

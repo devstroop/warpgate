@@ -28,12 +28,12 @@ services:
     ports:
       - "9090:9090"
     environment:
-      WARPATE_IMAGE: "warpgate:local"
-      WARPATE_PREFIX: "warpgate-"
-      WARPATE_COUNT: "3"
+      WARPGATE_IMAGE: "warpgate:local"
+      WARPGATE_PREFIX: "warpgate-"
+      WARPGATE_COUNT: "3"
       # Network name as created by Docker Compose: <project>_<network>
       # Default project name from directory is "warpgate".
-      WARPATE_NETWORK: "warpgate_warpgate-net"
+      WARPGATE_NETWORK: "warpgate_warpgate-net"
       MANAGER_PORT: "9090"
       # Set a strong random key to protect the management API:
       # MANAGER_API_KEY: "change-me"

@@ -199,7 +199,7 @@ def probe_container(client, name: str, container_id: str) -> HealthResult | None
 
 pool_lock = threading.Lock()
 pool: list[ProxyEndpoint] = []
-target_count = config.WARPATE_COUNT
+target_count = config.WARPGATE_COUNT
 
 # Serializes mutating reconcile ops (scale/create/remove) so they never race
 # the self-healing ensure_count called by the health checker.
@@ -238,9 +238,9 @@ def create_proxy_container(client, name: str):
     """
     try:
         container = client.containers.create(
-            image=config.WARPATE_IMAGE,
+            image=config.WARPGATE_IMAGE,
             name=name,
-            network=config.WARPATE_NETWORK,
+            network=config.WARPGATE_NETWORK,
             cap_add=["NET_ADMIN"],
             devices=["/dev/net/tun:/dev/net/tun:rwm"],
             sysctls={"net.ipv6.conf.all.disable_ipv6": "0"},
@@ -380,7 +380,7 @@ def ensure_count(client) -> None:
             cname = None
             for attempt in range(config.CREATE_RETRIES):
                 suffix = os.urandom(4).hex()
-                cname = f"{config.WARPATE_PREFIX}{suffix}"
+                cname = f"{config.WARPGATE_PREFIX}{suffix}"
                 container = create_proxy_container(client, cname)
                 if container:
                     break
@@ -551,7 +551,7 @@ def discover_pool(client) -> list[ProxyEndpoint]:
     for c in containers:
         if c.short_id == SELF_CONTAINER_ID or c.id == SELF_CONTAINER_ID:
             continue
-        if c.name and c.name.startswith(config.WARPATE_PREFIX):
+        if c.name and c.name.startswith(config.WARPGATE_PREFIX):
             ep = ProxyEndpoint(name=c.name, container_id=c.id or "")
             result = probe_container(client, c.name, c.id or "")
             if result is not None:

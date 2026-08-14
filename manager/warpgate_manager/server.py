@@ -217,7 +217,7 @@ def _run_create(client, name: str | None = None) -> dict:
     cname = name
     if cname is None:
         for attempt in range(config.CREATE_RETRIES):
-            cname = f"{config.WARPATE_PREFIX}{os.urandom(4).hex()}"
+            cname = f"{config.WARPGATE_PREFIX}{os.urandom(4).hex()}"
             container = poolmod.create_proxy_container(client, cname)
             if container:
                 break
