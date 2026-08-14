@@ -73,7 +73,7 @@ The manager is a **management-only** control plane.
 
 **Base URL:** `http://manager:9090/v1`
 
-**Auth:** all routes except `GET /v1/health`, `GET /v1/ready`,
+**Auth:** all routes except `GET /v1/health`,
 `GET /v1/openapi.yaml`, `GET /v1/docs` and `OPTIONS` require
 `Authorization: Bearer <MANAGER_API_KEY>` when a key is configured (so
 load-balancer probes always work). Failed auth is rate-limited per client IP.
@@ -98,7 +98,6 @@ with a *different* operation is rejected with `409 IDEMPOTENCY_CONFLICT`.
 | Method | Path | Body / Params | Returns |
 |---|---|---|---|
 | `GET` | `/v1/health` | — | Liveness `{"status","pool_size","healthy","degraded"}` → always `200` while the manager is up |
-| `GET` | `/v1/ready` | — | Readiness → `200` if ≥1 healthy proxy, else `503` |
 | `GET` | `/v1/pool` | `?include=proxies` (default on; `none` to omit) | Pool summary + proxy list |
 | `PATCH` | `/v1/pool` | `{"target": N}` | `202` + task (replaces `POST /scale`) |
 | `GET` | `/v1/proxies` | `?healthy=true\|false` | `[Proxy, ...]` |
@@ -109,7 +108,6 @@ with a *different* operation is rejected with `409 IDEMPOTENCY_CONFLICT`.
 | `POST` | `/v1/proxies/{id}/restart` | — | `202` + task (recreates the container) |
 | `POST` | `/v1/proxies/rotate` | `{"scope":"unhealthy"\|"all"}` (default `unhealthy`) | `202` + task (bulk) |
 | `GET` | `/v1/tasks/{id}` | — | task object; `404` if unknown/expired |
-| `GET` | `/v1/config` | — | read-only image/prefix/network/max_pool/target |
 | `GET` | `/v1/openapi.yaml` | — | OpenAPI 3.1 spec |
 | `GET` | `/v1/docs` | — | Swagger UI |
 
@@ -147,7 +145,7 @@ Errors use a consistent envelope; every response carries `X-Request-ID`:
 | `RATE_LIMITED` | 429 |
 | `PROXY_NOT_FOUND` / `TASK_NOT_FOUND` | 404 |
 | `POOL_AT_CAPACITY` / `PROXY_EXISTS` / `IDEMPOTENCY_CONFLICT` | 409 |
-| `DOCKER_UNAVAILABLE` / `NOT_READY` | 503 |
+| `DOCKER_UNAVAILABLE` | 503 |
 | `NOT_FOUND` / `METHOD_NOT_ALLOWED` / `INTERNAL` | 404 / 405 / 500 |
 | `CREATE_FAILED` / `RECREATE_FAILED` | task `error_code` (no HTTP status) |
 

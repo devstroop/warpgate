@@ -4,7 +4,7 @@ Routes stay thin: pool logic lives in ``pool``, task orchestration in
 ``tasks``, serialization/validation in ``schemas``.
 
 Security notes:
-  * All routes except ``/v1/health``, ``/v1/ready``, ``/v1/openapi.yaml``,
+  * All routes except ``/v1/health``, ``/v1/openapi.yaml``,
     ``/v1/docs`` and ``OPTIONS`` require ``Authorization: Bearer <key>``
     when ``MANAGER_API_KEY`` is set, so load-balancer probes work regardless.
   * Failed auth is rate-limited per client IP (``MANAGER_RATE_LIMIT`` per
@@ -95,7 +95,6 @@ def error_response(status: int, code: str, message: str):
 
 AUTH_EXEMPT = {
     "/v1/health",
-    "/v1/ready",
     "/v1/openapi.yaml",
     "/v1/docs",
 }
@@ -270,19 +269,8 @@ def health():
         total = len(poolmod.pool)
     status = "ok" if healthy > 0 else ("initializing" if total == 0 else "degraded")
     # Liveness: the manager process is up. Pool degradation is reported in
-    # the body and gates /v1/ready — never kills the controller that heals
-    # the pool.
+    # the body — never kills the controller that heals the pool.
     return jsonify({"status": status, "pool_size": total, "healthy": healthy, "degraded": total - healthy})
-
-
-@app.route("/v1/ready")
-def ready():
-    with poolmod.pool_lock:
-        healthy = sum(1 for p in poolmod.pool if p.healthy)
-        total = len(poolmod.pool)
-    if healthy >= 1:
-        return jsonify({"status": "ready", "pool_size": total, "healthy": healthy})
-    return error_response(503, "NOT_READY", "no healthy proxies")
 
 
 # ── Routes: pool ────────────────────────────────────────────────────────
@@ -442,14 +430,7 @@ def get_task(task_id):
     return resp
 
 
-# ── Routes: config / spec ───────────────────────────────────────────────
-
-@app.route("/v1/config")
-def get_config():
-    with poolmod.pool_lock:
-        target = poolmod.target_count
-    return jsonify(schemas.to_config_dict(target))
-
+# ── Routes: spec / docs ─────────────────────────────────────────────────
 
 _OPENAPI_PATH = Path(__file__).with_name("openapi.yaml")
 

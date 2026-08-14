@@ -32,17 +32,6 @@ def test_health_exempt_from_auth(auth_client):
     assert auth_client.get("/v1/health").status_code == 200
 
 
-def test_ready_503_when_empty(client):
-    assert client.get("/v1/ready").status_code == 503
-
-
-def test_ready_200_when_healthy_proxy_exists(client):
-    make_proxy("warpgate-aaa11111", healthy=True)
-    resp = client.get("/v1/ready")
-    assert resp.status_code == 200
-    assert resp.get_json()["healthy"] == 1
-
-
 # ── Auth ────────────────────────────────────────────────────────────────
 
 def test_auth_required(auth_client):
@@ -222,14 +211,7 @@ def test_get_task_not_found(client):
     assert resp.get_json()["error"]["code"] == "TASK_NOT_FOUND"
 
 
-# ── Config / spec / docs ────────────────────────────────────────────────
-
-def test_get_config(client):
-    resp = client.get("/v1/config")
-    assert resp.status_code == 200
-    body = resp.get_json()
-    assert set(body) == {"image", "prefix", "network", "max_pool", "target"}
-
+# ── Spec / docs ─────────────────────────────────────────────────────────
 
 def test_openapi_and_docs(client):
     spec = client.get("/v1/openapi.yaml")

@@ -36,7 +36,7 @@ paths:
       operationId: health
       summary: Liveness probe
       description: Always 200 while the manager process is up. Pool health is
-        reported in the body and gates /ready. Auth-exempt for load-balancer probes.
+        reported in the body. Auth-exempt for load-balancer probes.
       security: []
       responses:
         '200':
@@ -44,29 +44,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Health' }
-  /ready:
-    get:
-      operationId: ready
-      summary: Readiness probe
-      description: 200 when at least one proxy is healthy, else 503. Auth-exempt.
-      security: []
-      responses:
-        '200':
-          description: Ready to serve traffic
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [status, pool_size, healthy]
-                properties:
-                  status: { type: string, enum: [ready] }
-                  pool_size: { type: integer }
-                  healthy: { type: integer }
-        '503':
-          description: No healthy proxies
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
   /pool:
     get:
       operationId: getPool
@@ -313,37 +290,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorEnvelope' }
-  /config:
-    get:
-      operationId: getConfig
-      summary: Read-only runtime configuration
-      responses:
-        '200':
-          description: Configuration
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Config' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-  /openapi.yaml:
-    get:
-      operationId: getOpenApi
-      summary: This spec, served as YAML
-      security: []
-      responses:
-        '200':
-          description: OpenAPI 3.1 spec
-          content:
-            application/yaml: { schema: { type: string } }
-  /docs:
-    get:
-      operationId: getDocs
-      summary: Swagger UI (CDN assets)
-      security: []
-      responses:
-        '200':
-          description: HTML page
-          content:
-            text/html: { schema: { type: string } }
 components:
   securitySchemes:
     bearerAuth:
@@ -438,15 +384,6 @@ components:
         created_at: { type: string, format: date-time }
         started_at: { type: string, format: date-time, nullable: true }
         finished_at: { type: string, format: date-time, nullable: true }
-    Config:
-      type: object
-      required: [image, prefix, network, max_pool, target]
-      properties:
-        image: { type: string }
-        prefix: { type: string }
-        network: { type: string }
-        max_pool: { type: integer }
-        target: { type: integer }
     ErrorEnvelope:
       type: object
       required: [error]
@@ -469,7 +406,6 @@ components:
                 - RECREATE_FAILED
                 - IDEMPOTENCY_CONFLICT
                 - DOCKER_UNAVAILABLE
-                - NOT_READY
                 - NOT_FOUND
                 - METHOD_NOT_ALLOWED
                 - INTERNAL

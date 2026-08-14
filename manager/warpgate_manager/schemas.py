@@ -71,17 +71,6 @@ def to_pool_dict(proxies: list[ProxyEndpoint], target: int, include_proxies: boo
     return summary
 
 
-def to_config_dict(target: int) -> dict:
-    from . import config
-    return {
-        "image": config.WARPGATE_IMAGE,
-        "prefix": config.WARPGATE_PREFIX,
-        "network": config.WARPGATE_NETWORK,
-        "max_pool": config.MANAGER_MAX_POOL,
-        "target": target,
-    }
-
-
 # ── Request validation ──────────────────────────────────────────────────
 
 def _is_bool(x) -> bool:
