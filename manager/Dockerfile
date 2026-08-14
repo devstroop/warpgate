@@ -5,8 +5,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY server.py .
+COPY warpgate_manager ./warpgate_manager
 
 EXPOSE 9090
 
-CMD ["python", "server.py"]
+CMD ["python", "-m", "warpgate_manager.server"]

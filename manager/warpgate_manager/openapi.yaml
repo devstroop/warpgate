@@ -1,0 +1,477 @@
+openapi: 3.1.0
+info:
+  title: WarpGate Manager API
+  version: 2.0.0
+  description: |
+    Control-plane for the warpgate proxy pool. Proxy traffic flows directly
+    to containers (SOCKS5/HTTP); this API is management-only.
+
+    **Breaking change from the 1.x API**: all routes now live under `/v1`
+    with a new async task model (202 + `Location` + poll `GET /tasks/{id}`).
+
+    Tasks are kept in memory only and are lost when the manager restarts.
+    Failed tasks carry a machine-readable `error_code` (see the error table)
+    in addition to a human-readable `error` message.
+
+    **Idempotency**: every mutating operation accepts an optional
+    `Idempotency-Key` header. Repeating a request with the same key returns
+    the already-created task instead of starting a new operation, so a client
+    that retries after a timeout/network blip never duplicates a proxy.
+
+    **Task `result` shapes by type**: `proxy.create` → a `Proxy`;
+    `proxy.remove` → `{"status","id"}`; `proxy.rotate` → `{"rotated", "proxy"}`
+    (the proxy is re-probed after rotation); `proxy.restart` →
+    `{"restarted", "proxy"}`; `proxy.rotate_bulk` →
+    `{"rotated": [], "failed": [], "count"}`; `pool.scale` → a pool summary
+    without the proxy list.
+servers:
+  # Relative: Swagger UI and clients resolve this against the host serving
+  # the docs, so "Try it out" never hits a CORS / unresolvable host.
+  - url: /v1
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      operationId: health
+      summary: Liveness probe
+      description: Always 200 while the manager process is up. Pool health is
+        reported in the body and gates /ready. Auth-exempt for load-balancer probes.
+      security: []
+      responses:
+        '200':
+          description: Manager is alive
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+  /ready:
+    get:
+      operationId: ready
+      summary: Readiness probe
+      description: 200 when at least one proxy is healthy, else 503. Auth-exempt.
+      security: []
+      responses:
+        '200':
+          description: Ready to serve traffic
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, pool_size, healthy]
+                properties:
+                  status: { type: string, enum: [ready] }
+                  pool_size: { type: integer }
+                  healthy: { type: integer }
+        '503':
+          description: No healthy proxies
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  /pool:
+    get:
+      operationId: getPool
+      summary: Pool summary and proxy list
+      parameters:
+        - name: include
+          in: query
+          description: Set to "none" to omit the proxy list.
+          schema: { type: string, enum: [proxies, none], default: proxies }
+      responses:
+        '200':
+          description: Pool summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PoolSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      operationId: scalePool
+      summary: Set the desired pool size
+      description: Asynchronous — returns a task to poll.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target]
+              properties:
+                target: { type: integer, minimum: 0 }
+      responses:
+        '202':
+          description: Scale accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/IdempotencyConflict' }
+        '422':
+          description: Invalid target
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  /proxies:
+    get:
+      operationId: listProxies
+      summary: List proxies
+      parameters:
+        - name: healthy
+          in: query
+          description: Filter by health state ('true' or 'false').
+          schema: { type: string, enum: ['true', 'false'] }
+      responses:
+        '200':
+          description: Proxy list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Proxy' }
+    post:
+      operationId: createProxy
+      summary: Create a proxy
+      description: |
+        Asynchronous — poll the returned task; its result contains the new Proxy.
+
+        An optional `name` (a valid docker container name) requests a specific
+        proxy name; it must not already exist in the pool (409 `PROXY_EXISTS`).
+        Repeat calls with the same `Idempotency-Key` return the same task.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  maxLength: 64
+                  pattern: '^[a-zA-Z0-9][a-zA-Z0-9_.-]*$'
+                  description: Optional explicit proxy name (docker container name).
+      responses:
+        '202':
+          description: Create accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: Pool at max capacity, requested proxy name already exists, or `Idempotency-Key` reused for a different operation (`IDEMPOTENCY_CONFLICT`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  /proxies/{proxy_id}:
+    parameters:
+      - name: proxy_id
+        in: path
+        required: true
+        description: Proxy id (equals the container name).
+        schema: { type: string }
+    get:
+      operationId: getProxy
+      summary: Get a single proxy
+      responses:
+        '200':
+          description: Proxy detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Proxy' }
+        '404':
+          description: Proxy not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    delete:
+      operationId: deleteProxy
+      summary: Remove a proxy
+      description: Asynchronous. Also lowers the pool target so the proxy is not recreated.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Delete accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+        '404':
+          description: Proxy not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '409': { $ref: '#/components/responses/IdempotencyConflict' }
+  /proxies/{proxy_id}/rotate:
+    parameters:
+      - name: proxy_id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: rotateProxy
+      summary: Reconnect WARP on a single proxy
+      description: Asynchronous.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Rotate accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+        '404':
+          description: Proxy not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '409': { $ref: '#/components/responses/IdempotencyConflict' }
+  /proxies/{proxy_id}/restart:
+    parameters:
+      - name: proxy_id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: restartProxy
+      summary: Recreate a proxy container (same name)
+      description: Asynchronous.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Restart accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+        '404':
+          description: Proxy not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '409': { $ref: '#/components/responses/IdempotencyConflict' }
+  /proxies/rotate:
+    post:
+      operationId: rotateProxies
+      summary: Bulk rotate WARP connections
+      description: Rotates all or only unhealthy proxies. Asynchronous.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                scope:
+                  type: string
+                  enum: [unhealthy, all]
+                  default: unhealthy
+      responses:
+        '202':
+          description: Rotate accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+        '422':
+          description: Invalid scope
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '409': { $ref: '#/components/responses/IdempotencyConflict' }
+  /tasks/{task_id}:
+    parameters:
+      - name: task_id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getTask
+      summary: Poll a task
+      description: |
+        Running tasks return `Retry-After: 1`. Final state when done.
+      responses:
+        '200':
+          description: Task state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Task' }
+        '404':
+          description: Task not found (e.g. expired or lost on restart)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  /config:
+    get:
+      operationId: getConfig
+      summary: Read-only runtime configuration
+      responses:
+        '200':
+          description: Configuration
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Config' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /openapi.yaml:
+    get:
+      operationId: getOpenApi
+      summary: This spec, served as YAML
+      security: []
+      responses:
+        '200':
+          description: OpenAPI 3.1 spec
+          content:
+            application/yaml: { schema: { type: string } }
+  /docs:
+    get:
+      operationId: getDocs
+      summary: Swagger UI (CDN assets)
+      security: []
+      responses:
+        '200':
+          description: HTML page
+          content:
+            text/html: { schema: { type: string } }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: Retry-safe deduplication key. A repeat request with the same key returns the already-created task instead of starting a new operation.
+      schema: { type: string }
+  headers:
+    Location:
+      description: Task poll URL
+      schema: { type: string, format: uri-reference }
+  responses:
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    IdempotencyConflict:
+      description: The `Idempotency-Key` was already used for a different operation
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  schemas:
+    Health:
+      type: object
+      required: [status, pool_size, healthy, degraded]
+      properties:
+        status: { type: string, enum: [ok, degraded, initializing] }
+        pool_size: { type: integer }
+        healthy: { type: integer }
+        degraded: { type: integer }
+    Proxy:
+      type: object
+      required: [id, container_id, endpoints, status, created_at, uptime_s]
+      properties:
+        id: { type: string, description: Equals the container name }
+        container_id: { type: string }
+        endpoints:
+          type: object
+          required: [socks5, http]
+          properties:
+            socks5: { type: string, format: uri }
+            http: { type: string, format: uri }
+        status:
+          type: object
+          required: [healthy, socks5, http, warp]
+          properties:
+            healthy: { type: boolean }
+            socks5: { type: boolean }
+            http: { type: boolean }
+            warp:
+              type: object
+              required: [connected, detail]
+              properties:
+                connected: { type: boolean }
+                detail: { type: string }
+        created_at: { type: string, format: date-time }
+        uptime_s: { type: number }
+    PoolSummary:
+      type: object
+      required: [target, pool_size, healthy, degraded]
+      properties:
+        target: { type: integer }
+        pool_size: { type: integer }
+        healthy: { type: integer }
+        degraded: { type: integer }
+        proxies:
+          type: array
+          items: { $ref: '#/components/schemas/Proxy' }
+    Task:
+      type: object
+      required: [id, type, status, created_at]
+      properties:
+        id: { type: string }
+        type:
+          type: string
+          enum: [proxy.create, proxy.remove, proxy.rotate, proxy.restart, proxy.rotate_bulk, pool.scale]
+        status:
+          type: string
+          enum: [pending, running, succeeded, failed]
+        result: { nullable: true }
+        error: { type: string, nullable: true }
+        error_code:
+          type: string
+          nullable: true
+          description: Machine-readable code for failed tasks (null otherwise). See the error table.
+        created_at: { type: string, format: date-time }
+        started_at: { type: string, format: date-time, nullable: true }
+        finished_at: { type: string, format: date-time, nullable: true }
+    Config:
+      type: object
+      required: [image, prefix, network, max_pool, target]
+      properties:
+        image: { type: string }
+        prefix: { type: string }
+        network: { type: string }
+        max_pool: { type: integer }
+        target: { type: integer }
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                - UNAUTHORIZED
+                - RATE_LIMITED
+                - VALIDATION_ERROR
+                - PROXY_NOT_FOUND
+                - TASK_NOT_FOUND
+                - POOL_AT_CAPACITY
+                - PROXY_EXISTS
+                - CREATE_FAILED
+                - RECREATE_FAILED
+                - IDEMPOTENCY_CONFLICT
+                - DOCKER_UNAVAILABLE
+                - NOT_READY
+                - NOT_FOUND
+                - METHOD_NOT_ALLOWED
+                - INTERNAL
+            message: { type: string }
+            request_id: { type: string }

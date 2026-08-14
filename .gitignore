@@ -4,3 +4,8 @@
 
 # Development files
 REVIEW.md
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
